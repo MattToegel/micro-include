@@ -24,7 +24,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'    # or your preferred LTS
+          node-version: '22'
           cache: 'npm'
 
       - name: Install
@@ -34,7 +34,13 @@ jobs:
         run: npm run minify
         # this runs: node scripts/minify.js
         # and should write your minified file(s) into ./docs
-
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+      - name: Build with Jekyll
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./
+          destination: ./_site
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
