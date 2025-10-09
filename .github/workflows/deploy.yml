@@ -39,7 +39,7 @@ jobs:
       - name: Make README the index
         run: |
           mkdir -p docs
-          cp .docs/README.md docs/index.md
+          cp ./docs/README.md docs/index.md
 
       # --- Pages + Jekyll ---
       - name: Setup Pages
