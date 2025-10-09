@@ -1,0 +1,14 @@
+{
+  "name": "microinclude",
+  "version": "0.1.0",
+  "description": "A minimal JavaScript library to include HTML snippets into a page.",
+  "main": "docs/microinclude.js",
+  "scripts": {
+    "minify": "node scripts/minify.js"
+  },
+  "devDependencies": {
+    "terser": "^5.44.0"
+  },
+  "author": "Matt Toegel",
+  "license": "MIT"
+}
