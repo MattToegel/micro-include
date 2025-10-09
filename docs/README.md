@@ -5,6 +5,7 @@ A minimal, dependency-free JavaScript helper to include HTML snippets into a pag
 Purpose
 - Simplify composition of static HTML pages by pulling snippet files into placeholders.
 - Extremely small and modern-JS based — suitable for simple static sites or quick prototypes.
+- Mostly for educational purposes, not considered production ready.
 
 Status
 - Version: 0.1
@@ -21,12 +22,18 @@ Features
 Quick install
 - Place `microinclude.js` in your project and include it on pages that need snippet injection:
 
+```html
 <script src="microinclude.js" defer></script>
+```
 
 You can also load microinclude from a GitHub Pages-hosted copy:
 
+```html
 <script src="https://matttoegel.github.io/micro-include/microinclude.js" defer></script>
+
+<!-- or  minified -->
 <script src="https://matttoegel.github.io/micro-include/microinclude.min.js" defer></script>
+```
 
 
 Notes:
@@ -73,17 +80,6 @@ Implementation notes
 - Example semantics:
     - attribute name: `include`
     - allow multiple occurrences: presence of the `multiple` attribute
-
-Example with DOMPurify (recommended for untrusted HTML)
-```html
-<script src="https://unpkg.com/dompurify@latest/dist/purify.min.js"></script>
-<script src="microinclude.js" defer></script>
-
-<script>
-    // For untrusted content, the microinclude implementation should sanitize the fetched HTML:
-    // el.innerHTML = DOMPurify.sanitize(fetchedHtml);
-</script>
-```
 
 Contributing
 - Bug reports, small fixes, and suggestions welcome.
