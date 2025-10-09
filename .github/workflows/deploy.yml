@@ -2,7 +2,7 @@ name: Build & Deploy Pages
 
 on:
   push:
-    branches: [ main ]   # change if your default branch differs
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -21,30 +21,40 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # --- Node: minify first ---
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
 
-      - name: Install
+      - name: Install deps
         run: npm ci
 
       - name: Minify
         run: npm run minify
-        # this runs: node scripts/minify.js
-        # and should write your minified file(s) into ./docs
+        # should write minified files into ./docs
+
+      # --- Make README the site index ---
+      - name: Make README the index
+        run: |
+          mkdir -p docs
+          cp README.md docs/index.md
+
+      # --- Pages + Jekyll ---
       - name: Setup Pages
         uses: actions/configure-pages@v5
+
       - name: Build with Jekyll
         uses: actions/jekyll-build-pages@v1
         with:
-          source: ./
-          destination: ./_site
+          source: ./docs          # build the site from docs/
+          destination: ./_site    # output folder
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./docs   # deploy the docs folder (adjust if different)
+          path: ./_site           # deploy the Jekyll output
 
   deploy:
     needs: build
