@@ -25,7 +25,8 @@ Quick install
 
 You can also load microinclude from a GitHub Pages-hosted copy:
 
-<script src="https://ethereallab.github.io/microinclude/microinclude.js" defer></script>
+<script src="https://matttoegel.github.io/micro-include/microinclude.js" defer></script>
+<script src="https://matttoegel.github.io/micro-include/microinclude.min.js" defer></script>
 
 
 Notes:
