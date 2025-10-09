@@ -85,18 +85,11 @@ Contributing
 - Bug reports, small fixes, and suggestions welcome.
 - Keep changes minimal and consistent with the project's small footprint and no-dependency goal.
 
-License
-- MIT — see LICENSE file for details.
-
 Changelog
 - 2025-10-08 — v0.1 — Initial release (basic include support, duplicate suppression).
 - 2025-10-09 — v0.1 — Minor updates and documentation tweaks.
 
 Notes and hints
-- If you rely on scripts inside included fragments, you will need to evaluate them explicitly after insertion (microinclude does not do that).
+- ~~If you rely on scripts inside included fragments, you will need to evaluate them explicitly after insertion (microinclude does not do that).~~ After initial README generation I opted to have a loose check for DOMPurify which will be used internally if present. Include DOMPurify before this script to use it.
 - If you need nested includes, run the include pass again on inserted content or enhance the script to re-scan inserted fragments.
 - The script aims to be tiny and opinionated — for more advanced templating or component logic consider using a framework.
-
-Contact
-- Author: Matt Toegel
-- License: MIT
