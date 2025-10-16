@@ -41,15 +41,18 @@
             const src = this.getAttribute("src");
             if (!src) return this.showError("'src' attribute is required.");
 
+            // Adjust base URL for GitHub Pages compatibility
+            const base = document.querySelector('base')?.href || window.location.origin;
+
             if (!this.hasAttribute("multiple") && MicroInclude.includedSources.has(src)) {
                 dlog(`Skipping duplicate inclusion for ${src}`);
                 return;
             }
 
             try {
-                const srcUrl = new URL(src, document.baseURI).href;
+                const srcUrl = new URL(src, base).href; // Use adjusted base URL
                 const isExternal = this.isExternalReference(srcUrl);
-                dlog(`src="${src}" isExternal=${isExternal}`);
+                dlog(`src="${src}" resolved to "${srcUrl}" isExternal=${isExternal}`);
 
                 const response = await fetch(srcUrl);
                 if (!response.ok) throw new Error(`Failed to fetch ${src}: ${response.statusText}`);
