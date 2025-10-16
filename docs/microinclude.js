@@ -6,6 +6,7 @@
  * Optional Attributes:
  *   - multiple: If present, allows multiple inclusions of the same source, be mindful of infinite includes.
  *   - allow-untrusted: If present, skips sanitization of the included HTML (use with caution).
+ *   - allow-scripts: If present, enables the execution of <script> tags in the included content.
  * Debugging:
  *  - Set `debug=true` in the console to enable logging.
  *  - Or set localStorage item "mi-debug" to "true". 
@@ -13,7 +14,7 @@
  * License: MIT
  * Date: 2025-10-08
  * Updated: 2025-10-15
- * Version: 0.2
+ * Version: 0.2.1
  * 
  * Note: This script uses modern JavaScript features and may not work in very old browsers.
  * IMPORTANT: It is not XSS safe - do not include untrusted content.
@@ -27,93 +28,103 @@
  */
 
 (() => {
-    const debug = !!window.debug || localStorage?.getItem("mi-debug") === "true"; // Enable debug logging
-    const dlog = (...msg) => { if (debug) console.log(...msg); };
+    const debug = !!window.debug || localStorage?.getItem("mi-debug") === "true";
+    const dlog = (...msg) => debug && console.log("MicroInclude:", ...msg);
 
-    // Define the custom element
     class MicroInclude extends HTMLElement {
         constructor() {
             super();
-            this.attachShadow({ mode: "open" }); // Use shadow DOM for encapsulation
+            this.attachShadow({ mode: "open" });
         }
 
         async connectedCallback() {
             const src = this.getAttribute("src");
-            const allowMultiple = this.hasAttribute("multiple");
-            const allowUntrusted = this.hasAttribute("allow-untrusted");
-            dlog("MicroInclude connected:", { src, allowMultiple, allowUntrusted });
+            if (!src) return this.showError("'src' attribute is required.");
 
-            if (!src) {
-                console.error("MicroInclude: 'src' attribute is required.");
-                this.shadowRoot.innerHTML = `<p style="color: red;">Error: 'src' attribute is missing.</p>`;
-                return;
-            }
-
-            // Avoid duplicate inclusions unless 'multiple' is set
-            if (!allowMultiple && MicroInclude.includedSources.has(src)) {
-                dlog(`MicroInclude: Skipping duplicate inclusion for ${src}`);
+            if (!this.hasAttribute("multiple") && MicroInclude.includedSources.has(src)) {
+                dlog(`Skipping duplicate inclusion for ${src}`);
                 return;
             }
 
             try {
                 const srcUrl = new URL(src, document.baseURI).href;
                 const isExternal = this.isExternalReference(srcUrl);
-                dlog(`MicroInclude: src="${src}" isExternal=${isExternal}`);
+                dlog(`src="${src}" isExternal=${isExternal}`);
+
                 const response = await fetch(srcUrl);
                 if (!response.ok) throw new Error(`Failed to fetch ${src}: ${response.statusText}`);
+
                 let html = await response.text();
+                if (!this.hasAttribute("allow-untrusted") && isExternal) html = this.sanitizeHtml(html);
 
-                // Sanitize HTML if 'allow-untrusted' attribute is not set
-                if (!allowUntrusted && isExternal) {
-                    // feature check for DOMPurify
-                    try {
-                        let sanitizedHtml = html;
-                        if (typeof DOMPurify !== "undefined" && typeof DOMPurify.sanitize === "function") {
-                            sanitizedHtml = DOMPurify.sanitize(html);
-                            dlog("MicroInclude: content sanitized with DOMPurify.");
-                        } else if (typeof window.createDOMPurify === "function") {
-                            const purifier = window.createDOMPurify(window);
-                            if (typeof purifier.sanitize === "function") {
-                                sanitizedHtml = purifier.sanitize(html);
-                                dlog("MicroInclude: content sanitized with createDOMPurify.");
-                            }
-                        } else {
-                            console.warn("MicroInclude: DOMPurify not found; inserting untrusted HTML.");
-                        }
-                        html = sanitizedHtml;
-                    } catch (err) {
-                        dlog("MicroInclude: DOMPurify threw an error", err);
-                        console.error("MicroInclude: It's strongly encouraged to use DOMPurify to sanitize untrusted HTML.");
-                    }
+                const tempDiv = document.createElement("div");
+                tempDiv.innerHTML = html;
 
-                }
-                this.outerHTML = html;
-                MicroInclude.includedSources.add(src); // Track included sources
-                dlog(`MicroInclude: Successfully included ${src}`);
+                if (this.hasAttribute("allow-scripts")) this.executeScripts(tempDiv);
+
+                this.replaceWith(...tempDiv.childNodes);
+                MicroInclude.includedSources.add(src);
+                dlog(`Successfully included ${src}`);
             } catch (error) {
-                console.error("MicroInclude: Error including content:", error);
-                this.shadowRoot.innerHTML = `<p style="color: red;">Error loading content from ${src}</p>`;
+                this.showError(`Error loading content from ${src}`);
+                console.error(error);
             }
         }
-        /**
-            * Checks if the given src is an external reference.
-            * @param {string} src - The URL to check.
-            * @returns {boolean} - True if the src is external, false otherwise.
-            */
+
+        async executeScripts(container) {
+            const scripts = container.querySelectorAll("script");
+
+            for (const oldScript of scripts) {
+                const newScript = document.createElement("script");
+                this.copyAttributes(oldScript, newScript);
+                newScript.textContent = oldScript.textContent;
+
+                if (newScript.src) {
+                    // Load external scripts sequentially
+                    await this.loadScript(newScript);
+                } else {
+                    // Execute inline scripts immediately
+                    document.body.appendChild(newScript);
+                }
+
+                oldScript.remove();
+            }
+        }
+
+        copyAttributes(source, target) {
+            [...source.attributes].forEach(attr => target.setAttribute(attr.name, attr.value));
+        }
+
+        loadScript(script) {
+            return new Promise((resolve, reject) => {
+                script.onload = resolve;
+                script.onerror = reject;
+                document.body.appendChild(script);
+            });
+        }
+
+        sanitizeHtml(html) {
+            if (typeof DOMPurify !== "undefined" && typeof DOMPurify.sanitize === "function") {
+                dlog("Content sanitized with DOMPurify.");
+                return DOMPurify.sanitize(html);
+            }
+            console.warn("DOMPurify not found; inserting untrusted HTML.");
+            return html;
+        }
+
         isExternalReference(src) {
             try {
-                const srcUrl = new URL(src, document.baseURI); // Resolve relative URLs
-                return srcUrl.origin !== window.location.origin; // Compare origins
-            } catch (error) {
-                console.error("MicroInclude: Invalid URL in 'src' attribute:", src, error);
-                return false; // Treat invalid URLs as non-external
+                return new URL(src, document.baseURI).origin !== window.location.origin;
+            } catch {
+                return false;
             }
+        }
+
+        showError(message) {
+            this.shadowRoot.innerHTML = `<p style="color: red;">${message}</p>`;
         }
     }
 
-    // Static property to track included sources
     MicroInclude.includedSources = new Set();
-
-    // Register the custom element
     customElements.define("micro-include", MicroInclude);
 })();
