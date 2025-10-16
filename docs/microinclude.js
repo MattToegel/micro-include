@@ -41,16 +41,38 @@
             const src = this.getAttribute("src");
             if (!src) return this.showError("'src' attribute is required.");
 
-            // Adjust base URL for GitHub Pages compatibility
-            const base = document.querySelector('base')?.href || window.location.origin;
+            // Resolve src to an absolute URL, handling GitHub Pages project sites like username.github.io/repo/
+            let srcUrl;
+            const isFullUrl = /^\w+:\/\//.test(src) || src.startsWith("//");
+            if (isFullUrl) {
+                srcUrl = src; // absolute URL or protocol-relative
+            } else if (src.startsWith('/')) {
+                // Absolute path on site; when hosted on GitHub Pages project sites the repo name appears as the first path segment.
+                const baseTag = document.querySelector('base');
+                if (baseTag && baseTag.getAttribute('href')) {
+                    // Use base href if present (absolute or relative will be resolved by the browser)
+                    const baseHref = new URL(baseTag.getAttribute('href'), document.baseURI).href.replace(/\/$/, '');
+                    srcUrl = baseHref + src; // join base and absolute path
+                } else if (window.location.hostname.endsWith('.github.io')) {
+                    const parts = window.location.pathname.split('/').filter(Boolean);
+                    // If the first segment looks like a directory (no extension), treat it as the repo name
+                    const repo = parts.length && !/\.[^/]+$/.test(parts[0]) ? parts[0] : '';
+                    srcUrl = window.location.origin + (repo ? `/${repo}` : '') + src;
+                } else {
+                    // fallback to origin
+                    srcUrl = window.location.origin + src;
+                }
+            } else {
+                // Relative URL - resolve relative to the current document
+                srcUrl = new URL(src, document.baseURI).href;
+            }
 
-            if (!this.hasAttribute("multiple") && MicroInclude.includedSources.has(src)) {
-                dlog(`Skipping duplicate inclusion for ${src}`);
+            if (!this.hasAttribute("multiple") && MicroInclude.includedSources.has(srcUrl)) {
+                dlog(`Skipping duplicate inclusion for ${srcUrl}`);
                 return;
             }
 
             try {
-                const srcUrl = new URL(src, base).href; // Use adjusted base URL
                 const isExternal = this.isExternalReference(srcUrl);
                 dlog(`src="${src}" resolved to "${srcUrl}" isExternal=${isExternal}`);
 
@@ -66,8 +88,8 @@
                 if (this.hasAttribute("allow-scripts")) this.executeScripts(tempDiv);
 
                 this.replaceWith(...tempDiv.childNodes);
-                MicroInclude.includedSources.add(src);
-                dlog(`Successfully included ${src}`);
+                MicroInclude.includedSources.add(srcUrl);
+                dlog(`Successfully included ${srcUrl}`);
             } catch (error) {
                 this.showError(`Error loading content from ${src}`);
                 console.error(error);
