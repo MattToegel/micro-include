@@ -13,8 +13,8 @@
  * Author: Matt Toegel
  * License: MIT
  * Date: 2025-10-08
- * Updated: 2025-10-15
- * Version: 0.2.1
+ * Updated: 2025-10-16
+ * Version: 0.2.2
  * 
  * Note: This script uses modern JavaScript features and may not work in very old browsers.
  * IMPORTANT: It is not XSS safe - do not include untrusted content.
@@ -38,93 +38,117 @@
         }
 
         async connectedCallback() {
-            const src = this.getAttribute("src");
-            if (!src) return this.showError("'src' attribute is required.");
+            const srcAttr = this.getAttribute("src");
+            if (!srcAttr) return this.showError("'src' attribute is required.");
 
-            // Resolve src to an absolute URL, handling GitHub Pages project sites like username.github.io/repo/
-            let srcUrl;
-            const isFullUrl = /^\w+:\/\//.test(src) || src.startsWith("//");
-            if (isFullUrl) {
-                srcUrl = src; // absolute URL or protocol-relative
-            } else if (src.startsWith('/')) {
-                // Absolute path on site; when hosted on GitHub Pages project sites the repo name appears as the first path segment.
-                const baseTag = document.querySelector('base');
-                if (baseTag && baseTag.getAttribute('href')) {
-                    // Use base href if present (absolute or relative will be resolved by the browser)
-                    const baseHref = new URL(baseTag.getAttribute('href'), document.baseURI).href.replace(/\/$/, '');
-                    srcUrl = baseHref + src; // join base and absolute path
-                } else if (window.location.hostname.endsWith('.github.io')) {
-                    const parts = window.location.pathname.split('/').filter(Boolean);
-                    // If the first segment looks like a directory (no extension), treat it as the repo name
-                    const repo = parts.length && !/\.[^/]+$/.test(parts[0]) ? parts[0] : '';
-                    srcUrl = window.location.origin + (repo ? `/${repo}` : '') + src;
-                } else {
-                    // fallback to origin
-                    srcUrl = window.location.origin + src;
-                }
-            } else {
-                // Relative URL - resolve relative to the current document
-                srcUrl = new URL(src, document.baseURI).href;
-            }
-
-            if (!this.hasAttribute("multiple") && MicroInclude.includedSources.has(srcUrl)) {
-                dlog(`Skipping duplicate inclusion for ${srcUrl}`);
+            if (!this.hasAttribute("multiple") && MicroInclude.includedSources.has(srcAttr)) {
+                dlog(`Skipping duplicate inclusion for ${srcAttr}`);
                 return;
             }
 
-            try {
-                const isExternal = this.isExternalReference(srcUrl);
-                dlog(`src="${src}" resolved to "${srcUrl}" isExternal=${isExternal}`);
+            // Remember parent insertion point for inline scripts
+            const parent = this.parentNode;
+            const nextSibling = this.nextSibling;
 
-                const response = await fetch(srcUrl);
-                if (!response.ok) throw new Error(`Failed to fetch ${src}: ${response.statusText}`);
+            // Resolve the primary candidate URL
+            const isFullUrl = /^\w+:\/\//.test(srcAttr) || srcAttr.startsWith("//");
+            const candidate1 = isFullUrl ? srcAttr : new URL(srcAttr, document.baseURI).href;
+            let srcUrl = candidate1;
+
+            try {
+                // Try the primary URL first
+                let response = await fetch(candidate1);
+                if (!response.ok) throw new Error(`Primary URL failed: ${response.status}`);
 
                 let html = await response.text();
-                if (!this.hasAttribute("allow-untrusted") && isExternal) html = this.sanitizeHtml(html);
+                if (!this.hasAttribute("allow-untrusted") && this.isExternalReference(candidate1)) html = this.sanitizeHtml(html);
 
-                const tempDiv = document.createElement("div");
-                tempDiv.innerHTML = html;
-
-                if (this.hasAttribute("allow-scripts")) this.executeScripts(tempDiv);
-
-                this.replaceWith(...tempDiv.childNodes);
-                MicroInclude.includedSources.add(srcUrl);
-                dlog(`Successfully included ${srcUrl}`);
-            } catch (error) {
-                this.showError(`Error loading content from ${src}`);
-                console.error(error);
+                await this._insertContent(html, parent, nextSibling, candidate1);
+                MicroInclude.includedSources.add(candidate1);
+                dlog(`Successfully included ${candidate1}`);
+                return;
+            } catch (err) {
+                dlog("Primary fetch failed, attempting GH Pages fallback if applicable", err);
             }
+
+            /*
+            // GitHub Pages project-site fallback (WIP/TBD)
+            if (srcAttr.startsWith('/') && window.location.hostname.endsWith('.github.io')) {
+                const parts = window.location.pathname.split('/').filter(Boolean);
+                const repo = parts.length ? parts[0] : '';
+                const candidate2 = window.location.origin + (repo ? `/${repo}` : '') + srcAttr;
+                try {
+                    const response2 = await fetch(candidate2);
+                    if (!response2.ok) throw new Error(`Fallback URL failed: ${response2.status}`);
+                    let html = await response2.text();
+                    if (!this.hasAttribute("allow-untrusted") && this.isExternalReference(candidate2)) html = this.sanitizeHtml(html);
+
+                    await this._insertContent(html, parent, nextSibling, candidate2);
+                    MicroInclude.includedSources.add(candidate2);
+                    dlog(`Successfully included ${candidate2}`);
+                    return;
+                } catch (err) {
+                    dlog("Fallback fetch also failed", err);
+                }
+            }
+            */
+
+            this.showError(`Error loading content from ${srcAttr}`);
+            console.error(`MicroInclude: Failed to load ${srcAttr}`);
         }
 
-        async executeScripts(container) {
-            const scripts = container.querySelectorAll("script");
+        async _insertContent(html, parent, nextSibling, baseUrl) {
+            const container = document.createElement('div');
+            container.innerHTML = html;
 
-            for (const oldScript of scripts) {
-                const newScript = document.createElement("script");
+            // Collect scripts and remove them from the container to avoid duplicate execution
+            const external = Array.from(container.querySelectorAll('script[src]'));
+            const inline = Array.from(container.querySelectorAll('script:not([src])'));
+            external.concat(inline).forEach(s => s.remove());
+
+            // Load external scripts sequentially and deduplicate
+            for (const oldScript of external) {
+                const src = oldScript.getAttribute('src') || oldScript.src;
+                const resolvedSrc = new URL(src, baseUrl).href;
+
+                if (MicroInclude.loadedScripts.has(resolvedSrc) || Array.from(document.scripts).some(s => s.src === resolvedSrc)) continue;
+
+                const newScript = document.createElement('script');
+                this.copyAttributes(oldScript, newScript);
+                newScript.src = resolvedSrc;
+
+                try {
+                    await this.loadScript(newScript);
+                    MicroInclude.loadedScripts.add(resolvedSrc);
+                } catch (err) {
+                    console.error(`MicroInclude: Failed to load script ${resolvedSrc}`, err);
+                }
+            }
+
+            // Insert the fetched content into the DOM
+            this.replaceWith(...container.childNodes);
+
+            // Execute inline scripts after content is in place
+            for (const oldScript of inline) {
+                const newScript = document.createElement('script');
                 this.copyAttributes(oldScript, newScript);
                 newScript.textContent = oldScript.textContent;
-
-                if (newScript.src) {
-                    // Load external scripts sequentially
-                    await this.loadScript(newScript);
-                } else {
-                    // Execute inline scripts immediately
-                    document.body.appendChild(newScript);
-                }
-
-                oldScript.remove();
+                parent.insertBefore(newScript, nextSibling);
             }
         }
 
         copyAttributes(source, target) {
-            [...source.attributes].forEach(attr => target.setAttribute(attr.name, attr.value));
+            [...source.attributes].forEach(attr => {
+                if (attr.name === 'src') return; // src handled separately to allow resolution
+                target.setAttribute(attr.name, attr.value);
+            });
         }
 
         loadScript(script) {
             return new Promise((resolve, reject) => {
-                script.onload = resolve;
-                script.onerror = reject;
-                document.body.appendChild(script);
+                script.onload = () => resolve();
+                script.onerror = (e) => reject(e);
+                document.head.appendChild(script);
             });
         }
 
@@ -151,5 +175,6 @@
     }
 
     MicroInclude.includedSources = new Set();
+    MicroInclude.loadedScripts = new Set();
     customElements.define("micro-include", MicroInclude);
 })();
